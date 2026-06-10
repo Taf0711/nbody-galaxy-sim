@@ -35,7 +35,10 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1],
 // structure that makes the collision pretty.
 function disk({ posMass, vel, offset, n, center, bulk, axis, radius, mass, rng }) {
   const Rd = radius / 3;
-  const bulgeFrac = 0.3;
+  // Disk self-gravity wants to fragment a cold disk into knots within an
+  // orbit or two (Toomre instability); a heavier central mass and a little
+  // velocity dispersion keep the disks coherent long enough to collide.
+  const bulgeFrac = 0.55;
   const mc = mass * bulgeFrac;          // central point mass
   const md = mass * (1 - bulgeFrac);    // disk total
   const mp = md / (n - 1);              // per disk particle
@@ -60,7 +63,7 @@ function disk({ posMass, vel, offset, n, center, bulk, axis, radius, mass, rng }
     ];
 
     const menc = mc + md * (1 - (1 + r / Rd) * Math.exp(-r / Rd));
-    const vc = Math.sqrt(menc / r) * (1 + (rng() - 0.5) * 0.06);
+    const vc = Math.sqrt(menc / r) * (1 + (rng() - 0.5) * 0.1);
     // Tangential direction: nrm x radial.
     const rad = [e1[0] * cx + e2[0] * sx, e1[1] * cx + e2[1] * sx, e1[2] * cx + e2[2] * sx];
     const tan = cross(nrm, rad);
@@ -122,11 +125,11 @@ export function makeScene(name, n, capacity, seed = 12345) {
     // Two disks on a slightly offset approach so the encounter is a grazing
     // one — head-on mergers are over too fast to be interesting.
     disk({ posMass, vel, offset: 0, n: n1, rng,
-           center: [-1.5, 0.12, -0.3], bulk: [0.32, 0, 0.06],
-           axis: [0.25, 1, 0.12], radius: 1.25, mass: 1.0 });
+           center: [-1.9, 0.15, -0.4], bulk: [0.25, 0, 0.05],
+           axis: [0.25, 1, 0.12], radius: 1.15, mass: 1.0 });
     disk({ posMass, vel, offset: n1, n: n2, rng,
-           center: [1.5, -0.12, 0.3], bulk: [-0.45, 0, -0.08],
-           axis: [-0.45, 1, 0.35], radius: 1.0, mass: 0.65 });
+           center: [1.9, -0.15, 0.4], bulk: [-0.36, 0, -0.07],
+           axis: [-0.45, 1, 0.35], radius: 0.95, mass: 0.65 });
   } else if (name === "single") {
     disk({ posMass, vel, offset: 0, n, rng,
            center: [0, 0, 0], bulk: [0, 0, 0],

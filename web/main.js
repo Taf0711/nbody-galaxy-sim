@@ -6,7 +6,7 @@ import { SIM_WGSL, RENDER_WGSL, COMPOSITE_WGSL } from "./shaders.js";
 import { makeScene, plummerBlob } from "./galaxy.js";
 
 const DT0 = 1 / 240;       // base timestep (sim units)
-const EPS2 = 0.015 * 0.015;
+const EPS2 = 0.03 * 0.03;
 const RESERVE = 16384;     // extra buffer slots for flung mass
 const BLOB_N = 1536;       // particles per fling
 const VMAX_COLOR = 1.3;    // speed -> color ramp ceiling
@@ -40,11 +40,24 @@ async function init() {
   const renderModule = device.createShaderModule({ code: RENDER_WGSL });
   const compositeModule = device.createShaderModule({ code: COMPOSITE_WGSL });
 
+  // One explicit layout shared by all three entry points. layout:"auto"
+  // would derive a per-entry-point layout containing only the bindings that
+  // entry point touches (forces never reads vel), and a bind group built for
+  // one would be invalid for the others.
+  const simBGL = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ],
+  });
+  const simLayout = device.createPipelineLayout({ bindGroupLayouts: [simBGL] });
   const simPipelines = Object.fromEntries(
     ["kick_drift", "forces", "kick"].map((entry) => [
       entry,
       device.createComputePipeline({
-        layout: "auto",
+        layout: simLayout,
         compute: { module: simModule, entryPoint: entry },
       }),
     ]),
@@ -124,7 +137,7 @@ async function init() {
     };
     const b = state.buffers;
     state.simBind = device.createBindGroup({
-      layout: simPipelines.forces.getBindGroupLayout(0),
+      layout: simBGL,
       entries: [
         { binding: 0, resource: { buffer: b.posMass } },
         { binding: 1, resource: { buffer: b.vel } },
@@ -254,7 +267,11 @@ async function init() {
   canvas.addEventListener("pointerdown", (e) => {
     const mode = e.button === 2 || e.shiftKey ? "fling" : "orbit";
     drag = { mode, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
-    canvas.setPointerCapture(e.pointerId);
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // Pointer may already be gone (e.g. pen lifted); drag still works.
+    }
   });
   canvas.addEventListener("pointermove", (e) => {
     if (!drag) return;
@@ -389,6 +406,11 @@ async function init() {
       `${gpairs.toFixed(1)} Gpair/s`;
     requestAnimationFrame(frame);
   }
+
+  // Browsers may restore form values across reloads; trust the controls.
+  state.scene = ui.scene.value;
+  state.n = parseInt(ui.count.value, 10);
+  state.timescale = parseFloat(ui.speed.value);
 
   configureSize();
   reset();
