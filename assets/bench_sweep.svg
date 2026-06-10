@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="480" viewBox="0 0 760 480" font-family="-apple-system, Segoe UI, sans-serif">
 <rect width="760" height="480" fill="#ffffff"/>
 <text x="380.0" y="24" text-anchor="middle" font-size="16" font-weight="600" fill="#222">Force computation cost vs N (log–log, lower is better)</text>
-<line x1="70" y1="380.4" x2="736" y2="380.4" stroke="#e3e3e3"/>
-<text x="62" y="384.4" text-anchor="end" font-size="11" fill="#555">1</text>
-<line x1="70" y1="280.7" x2="736" y2="280.7" stroke="#e3e3e3"/>
-<text x="62" y="284.7" text-anchor="end" font-size="11" fill="#555">10</text>
-<line x1="70" y1="181.1" x2="736" y2="181.1" stroke="#e3e3e3"/>
-<text x="62" y="185.1" text-anchor="end" font-size="11" fill="#555">100</text>
-<line x1="70" y1="81.5" x2="736" y2="81.5" stroke="#e3e3e3"/>
-<text x="62" y="85.5" text-anchor="end" font-size="11" fill="#555">1000</text>
+<line x1="70" y1="377.0" x2="736" y2="377.0" stroke="#e3e3e3"/>
+<text x="62" y="381.0" text-anchor="end" font-size="11" fill="#555">1</text>
+<line x1="70" y1="279.6" x2="736" y2="279.6" stroke="#e3e3e3"/>
+<text x="62" y="283.6" text-anchor="end" font-size="11" fill="#555">10</text>
+<line x1="70" y1="182.2" x2="736" y2="182.2" stroke="#e3e3e3"/>
+<text x="62" y="186.2" text-anchor="end" font-size="11" fill="#555">100</text>
+<line x1="70" y1="84.8" x2="736" y2="84.8" stroke="#e3e3e3"/>
+<text x="62" y="88.8" text-anchor="end" font-size="11" fill="#555">1000</text>
 <line x1="70.0" y1="40" x2="70.0" y2="424" stroke="#f0f0f0"/>
 <text x="70.0" y="442" text-anchor="middle" font-size="11" fill="#555">1k</text>
 <line x1="203.2" y1="40" x2="203.2" y2="424" stroke="#f0f0f0"/>
@@ -25,37 +25,44 @@
 <text x="736.0" y="442" text-anchor="middle" font-size="11" fill="#555">1024k</text>
 <text x="18" y="232.0" font-size="12" fill="#333" transform="rotate(-90 18 232.0)" text-anchor="middle">ms / step</text>
 <text x="403.0" y="468" text-anchor="middle" font-size="12" fill="#333">bodies (N)</text>
-<polyline points="70.0,380.7 203.2,258.9 336.4,137.6" fill="none" stroke="#c0392b" stroke-width="2.2"/>
-<circle cx="70.0" cy="380.7" r="3.4" fill="#c0392b"/>
-<circle cx="203.2" cy="258.9" r="3.4" fill="#c0392b"/>
-<circle cx="336.4" cy="137.6" r="3.4" fill="#c0392b"/>
+<polyline points="70.0,356.4 203.2,257.4 336.4,139.3" fill="none" stroke="#c0392b" stroke-width="2.2"/>
+<circle cx="70.0" cy="356.4" r="3.4" fill="#c0392b"/>
+<circle cx="203.2" cy="257.4" r="3.4" fill="#c0392b"/>
+<circle cx="336.4" cy="139.3" r="3.4" fill="#c0392b"/>
 <rect x="84" y="45" width="12" height="12" fill="#c0392b"/>
 <text x="102" y="56" font-size="12" fill="#333">naive O(n²), 1 thread</text>
-<polyline points="203.2,319.4 336.4,200.4 469.6,78.1" fill="none" stroke="#e67e22" stroke-width="2.2"/>
-<circle cx="203.2" cy="319.4" r="3.4" fill="#e67e22"/>
-<circle cx="336.4" cy="200.4" r="3.4" fill="#e67e22"/>
-<circle cx="469.6" cy="78.1" r="3.4" fill="#e67e22"/>
+<polyline points="203.2,314.3 336.4,196.1 469.6,84.1" fill="none" stroke="#e67e22" stroke-width="2.2"/>
+<circle cx="203.2" cy="314.3" r="3.4" fill="#e67e22"/>
+<circle cx="336.4" cy="196.1" r="3.4" fill="#e67e22"/>
+<circle cx="469.6" cy="84.1" r="3.4" fill="#e67e22"/>
 <rect x="84" y="65" width="12" height="12" fill="#e67e22"/>
 <text x="102" y="76" font-size="12" fill="#333">naive O(n²), threaded</text>
-<polyline points="70.0,409.1 203.2,296.0 336.4,175.2 469.6,55.9" fill="none" stroke="#2980b9" stroke-width="2.2"/>
-<circle cx="70.0" cy="409.1" r="3.4" fill="#2980b9"/>
-<circle cx="203.2" cy="296.0" r="3.4" fill="#2980b9"/>
-<circle cx="336.4" cy="175.2" r="3.4" fill="#2980b9"/>
-<circle cx="469.6" cy="55.9" r="3.4" fill="#2980b9"/>
+<polyline points="70.0,409.4 203.2,292.3 336.4,174.4 469.6,58.6" fill="none" stroke="#2980b9" stroke-width="2.2"/>
+<circle cx="70.0" cy="409.4" r="3.4" fill="#2980b9"/>
+<circle cx="203.2" cy="292.3" r="3.4" fill="#2980b9"/>
+<circle cx="336.4" cy="174.4" r="3.4" fill="#2980b9"/>
+<circle cx="469.6" cy="58.6" r="3.4" fill="#2980b9"/>
 <rect x="84" y="85" width="12" height="12" fill="#2980b9"/>
 <text x="102" y="96" font-size="12" fill="#333">NEON SIMD, 1 thread</text>
-<polyline points="203.2,353.9 336.4,237.5 469.6,117.7 536.2,54.9" fill="none" stroke="#16a085" stroke-width="2.2"/>
-<circle cx="203.2" cy="353.9" r="3.4" fill="#16a085"/>
-<circle cx="336.4" cy="237.5" r="3.4" fill="#16a085"/>
-<circle cx="469.6" cy="117.7" r="3.4" fill="#16a085"/>
-<circle cx="536.2" cy="54.9" r="3.4" fill="#16a085"/>
+<polyline points="203.2,350.5 336.4,230.4 469.6,116.3 536.2,54.6" fill="none" stroke="#16a085" stroke-width="2.2"/>
+<circle cx="203.2" cy="350.5" r="3.4" fill="#16a085"/>
+<circle cx="336.4" cy="230.4" r="3.4" fill="#16a085"/>
+<circle cx="469.6" cy="116.3" r="3.4" fill="#16a085"/>
+<circle cx="536.2" cy="54.6" r="3.4" fill="#16a085"/>
 <rect x="84" y="105" width="12" height="12" fill="#16a085"/>
 <text x="102" y="116" font-size="12" fill="#333">NEON SIMD, threaded</text>
-<polyline points="336.4,266.0 469.6,196.7 602.8,132.6 736.0,64.5" fill="none" stroke="#8e44ad" stroke-width="2.2"/>
-<circle cx="336.4" cy="266.0" r="3.4" fill="#8e44ad"/>
-<circle cx="469.6" cy="196.7" r="3.4" fill="#8e44ad"/>
-<circle cx="602.8" cy="132.6" r="3.4" fill="#8e44ad"/>
-<circle cx="736.0" cy="64.5" r="3.4" fill="#8e44ad"/>
+<polyline points="336.4,259.8 469.6,190.6 602.8,126.2 736.0,63.5" fill="none" stroke="#8e44ad" stroke-width="2.2"/>
+<circle cx="336.4" cy="259.8" r="3.4" fill="#8e44ad"/>
+<circle cx="469.6" cy="190.6" r="3.4" fill="#8e44ad"/>
+<circle cx="602.8" cy="126.2" r="3.4" fill="#8e44ad"/>
+<circle cx="736.0" cy="63.5" r="3.4" fill="#8e44ad"/>
 <rect x="84" y="125" width="12" height="12" fill="#8e44ad"/>
 <text x="102" y="136" font-size="12" fill="#333">Barnes-Hut θ=0.5, threaded</text>
+<polyline points="336.4,262.1 469.6,192.7 602.8,129.7 736.0,71.8" fill="none" stroke="#d4488e" stroke-width="2.2"/>
+<circle cx="336.4" cy="262.1" r="3.4" fill="#d4488e"/>
+<circle cx="469.6" cy="192.7" r="3.4" fill="#d4488e"/>
+<circle cx="602.8" cy="129.7" r="3.4" fill="#d4488e"/>
+<circle cx="736.0" cy="71.8" r="3.4" fill="#d4488e"/>
+<rect x="84" y="145" width="12" height="12" fill="#d4488e"/>
+<text x="102" y="156" font-size="12" fill="#333">Barnes-Hut quadrupole θ=0.65</text>
 </svg>

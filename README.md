@@ -1,14 +1,15 @@
 # N-Body Galaxy Simulator
 
 Real-time gravitational simulation, twice: a CPU engine in C++ pushed from a
-naive O(n²) loop to a multithreaded, NEON-vectorized Barnes-Hut tree that
-steps **a million bodies in ~1.5 s**, and a WebGPU compute demo that runs
-tens of thousands of bodies at 60 fps **entirely in your browser** — fling
-mass into a galaxy collision and watch it evolve.
+naive O(n²) loop to a multithreaded, NEON-vectorized Barnes-Hut tree with
+quadrupole moments that steps **a million bodies in ~1.4 s**, and a WebGPU
+compute demo that runs tens of thousands of bodies at 60 fps **entirely in
+your browser** — fling mass into a galaxy collision and watch it evolve.
 
 **[▶ Live demo](https://taf0711.github.io/nbody-galaxy-sim/)** — needs WebGPU
-(Chrome, Edge, or Safari 18+). Drag to orbit, scroll to zoom,
-**shift-drag to fling mass into the simulation**.
+(Chrome, Edge, or Safari 18+). Drag to orbit, scroll or pinch to zoom,
+**shift-drag (or right-drag) to fling mass into the simulation**, and try the
+trails slider.
 
 ![galaxy collision in the WebGPU demo](assets/screenshot.png)
 
@@ -19,26 +20,27 @@ measured at n = 16,384 on an Apple M2 (4P+4E cores, clang -O3, no fast-math):
 
 | stage | ms/step | speedup |
 |---|---:|---:|
-| naive all-pairs, scalar, 1 thread | 273.6 | 1.0× |
-| + thread pool (8 threads) | 64.1 | 4.3× |
-| NEON SIMD kernel, 1 thread | 114.7 | 2.4× |
-| SIMD + threads | 27.2 | 10.1× |
-| **Barnes-Hut (θ = 0.5) + threads** | **14.1** | **19.4×** |
+| naive all-pairs, scalar, 1 thread | 276.0 | 1.0× |
+| + thread pool (8 threads) | 72.0 | 3.8× |
+| NEON SIMD kernel, 1 thread | 120.2 | 2.3× |
+| SIMD + threads | 32.0 | 8.6× |
+| Barnes-Hut θ = 0.5 + threads | 16.0 | 17.3× |
+| **Barnes-Hut quadrupole θ = 0.65** | **15.1** | **18.3×** |
 
 ![ms/step vs N, all methods](assets/bench_sweep.svg)
 
 The brute-force curves grow as n²; Barnes-Hut grows as n·log n. The gap is
-already 6× at 65k bodies and grows without bound:
+already ~6× at 65k bodies and grows without bound:
 
-| N | Barnes-Hut | all-pairs SIMD+threads |
-|---:|---:|---:|
-| 65,536 | 69.8 ms | 433 ms |
-| 262,144 | 307 ms | ~7,400 ms (extrapolated) |
-| 1,048,576 | 1,479 ms | ~118,000 ms (extrapolated) |
+| N | BH monopole θ=0.5 | BH quadrupole θ=0.65 | all-pairs SIMD+threads |
+|---:|---:|---:|---:|
+| 65,536 | 81.9 ms | 78.1 ms | 476 ms |
+| 262,144 | 376 ms | 346 ms | ~8,200 ms (extrapolated) |
+| 1,048,576 | 1,658 ms | 1,360 ms | ~131,000 ms (extrapolated) |
 
-At a million bodies the tree build (Morton sort + construction) is only 95 ms
-of the 1.48 s step — traversal dominates, which is exactly where you want the
-time going.
+At a million bodies the tree build (Morton sort + construction) is only
+~95 ms of the step — traversal dominates, which is exactly where you want
+the time going.
 
 ![thread scaling](assets/bench_scaling.svg)
 
@@ -46,7 +48,7 @@ Two honest footnotes that took debugging to learn:
 
 * The "naive scalar" baseline is not as naive as it looks — clang
   auto-vectorizes it to ~1 G pair-interactions/s. The hand-written kernel's
-  2.4× on top comes from what the compiler *won't* do without
+  2.3× on top comes from what the compiler *won't* do without
   `-ffast-math`: replacing `sqrt + divide` with NEON's reciprocal-sqrt
   estimate plus two Newton-Raphson steps, and running four independent
   accumulator streams so the latency chains overlap.
@@ -103,19 +105,34 @@ self-force through the node's center of mass) — and setting θ = 0 forces the
 tree to degenerate into exact all-pairs, which is the test that catches any
 lost or double-counted body in the partition logic.
 
-| θ | RMS force error vs exact | ms/step @ 16k |
-|---:|---:|---:|
-| 0.5 | 3.3 × 10⁻³ | 14.1 |
-| 0.75 | 1.1 × 10⁻² | faster still |
+On top of the monopole approximation, each node optionally carries a
+traceless quadrupole tensor Q_ij = Σ m (3 sᵢsⱼ − s²δᵢⱼ) about its COM.
+Children fold into parents with the parallel-axis shift — exactly, because
+the cross terms vanish about each child's own COM. One extra power of s/d in
+the error means ~4× better accuracy at fixed θ, so θ can be opened up:
+
+| configuration | RMS force error | ms/step @ 16k | @ 1M |
+|---|---:|---:|---:|
+| monopole θ = 0.5 | 3.3 × 10⁻³ | 16.0 | 1,658 |
+| monopole θ = 0.75 | 1.1 × 10⁻² | — | — |
+| quadrupole θ = 0.5 | 8.6 × 10⁻⁴ | — | — |
+| **quadrupole θ = 0.65** | **2.8 × 10⁻³** | **15.1** | **1,360** |
+
+Equal accuracy, ~20% faster at a million bodies (the win grows with N as
+node acceptances dominate leaf work) — or 4× the accuracy at equal cost.
 
 **WebGPU demo** (`web/`). The same KDK scheme in WGSL. The force pass is the
 classic tiled all-pairs kernel: 256-thread workgroups stage 256-body tiles
 through workgroup memory, so each global position is read once per workgroup
 instead of once per thread — the M2's GPU sustains ~64 billion
-pair-interactions/s, ~6× the full 8-thread CPU SIMD rate. Rendering is
-additive gaussian sprites (colored by speed) into an rgba16float target with
-an exponential tonemap, so dense regions bloom naturally. No build step, no
-dependencies — three ES modules and two shaders.
+pair-interactions/s, ~6× the full 8-thread CPU SIMD rate. Rendering:
+additive gaussian sprites in HDR (rgba16float), per-star hashes varying
+size, brightness and hue (with a sprinkling of rare bright stars), each
+galaxy and any visitor-flung mass tinted as its own population, a half-res
+two-pass gaussian bloom, optional motion trails (the HDR buffer multiplied
+by a blend constant each frame), and an exponential-tonemap composite over a
+procedural background starfield. No build step, no dependencies — ES modules
+and WGSL strings.
 
 Why brute force on the GPU instead of porting Barnes-Hut? Divergent tree
 traversal is a poor fit for lockstep GPU execution, and at the body counts a
@@ -134,6 +151,7 @@ and the physics against analytic behavior:
 * SIMD vs naive: max relative error 2 × 10⁻⁶
 * threaded vs serial: bitwise identical
 * Barnes-Hut θ = 0 vs naive: exact (tree partition correctness)
+* quadrupole accuracy at θ = 0.5 and θ = 0.65 vs naive
 * Barnes-Hut θ = 0.7 energy conserved to ~10⁻⁵ over 100 steps
 
 ## Build & run
@@ -147,6 +165,16 @@ cd web && python3 -m http.server # demo at http://localhost:8000
 
 Requires clang++ on Apple Silicon (NEON intrinsics) and any Python 3 for the
 charts. The web demo is static files — host it anywhere.
+
+## Possible next steps
+
+* Fast multipole method (FMM) for O(n) forces — the natural sequel to
+  quadrupole Barnes-Hut.
+* Parallel radix sort for the Morton codes once traversal stops dominating.
+* A WASM + SIMD build of the CPU engine, so the Barnes-Hut path runs in the
+  browser too and the demo can scale past brute force.
+* GPU tree traversal (persistent threads + work queues) for millions of
+  bodies in the demo.
 
 ## Hardware
 
