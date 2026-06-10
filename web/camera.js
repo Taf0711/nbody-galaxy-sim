@@ -58,7 +58,7 @@ export class OrbitCamera {
     this.target = vec3(0, 0, 0);
     this.yaw = 0.6;
     this.pitch = 0.35;
-    this.dist = 4.6;
+    this.dist = 5.6;
     this.fovY = (50 * Math.PI) / 180;
   }
 

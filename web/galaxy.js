@@ -33,7 +33,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1],
 // near-circular orbits. v_circ comes from the spherically-enclosed mass —
 // approximate for a flat disk, but the slight imbalance just feeds the spiral
 // structure that makes the collision pretty.
-function disk({ posMass, vel, offset, n, center, bulk, axis, radius, mass, rng }) {
+function disk({ posMass, vel, offset, n, center, bulk, axis, radius, mass, rng, tag = 0 }) {
   const Rd = radius / 3;
   // Disk self-gravity wants to fragment a cold disk into knots within an
   // orbit or two (Toomre instability); a heavier central mass and a little
@@ -44,9 +44,9 @@ function disk({ posMass, vel, offset, n, center, bulk, axis, radius, mass, rng }
   const mp = md / (n - 1);              // per disk particle
   const [e1, e2, nrm] = basisFrom(axis);
 
-  // Central mass first.
+  // Central mass first. vel.w carries the population tag for render tinting.
   posMass.set([center[0], center[1], center[2], mc], offset * 4);
-  vel.set([bulk[0], bulk[1], bulk[2], 0], offset * 4);
+  vel.set([bulk[0], bulk[1], bulk[2], tag], offset * 4);
 
   for (let i = 1; i < n; i++) {
     let r;
@@ -74,13 +74,13 @@ function disk({ posMass, vel, offset, n, center, bulk, axis, radius, mass, rng }
     vel[k] = bulk[0] + tan[0] * vc;
     vel[k + 1] = bulk[1] + tan[1] * vc;
     vel[k + 2] = bulk[2] + tan[2] * vc;
-    vel[k + 3] = 0;
+    vel[k + 3] = tag;
   }
 }
 
 // Plummer sphere (same sampling as the C++ core), used for the "cloud" scene
 // and for flung mass blobs.
-export function plummerBlob({ posMass, vel, offset, n, center, bulk, mass, scale, rng }) {
+export function plummerBlob({ posMass, vel, offset, n, center, bulk, mass, scale, rng, tag = 0 }) {
   const mp = mass / n;
   for (let i = 0; i < n; i++) {
     let r;
@@ -110,7 +110,7 @@ export function plummerBlob({ posMass, vel, offset, n, center, bulk, mass, scale
     vel[k] = bulk[0] + v * dv[0];
     vel[k + 1] = bulk[1] + v * dv[1];
     vel[k + 2] = bulk[2] + v * dv[2];
-    vel[k + 3] = 0;
+    vel[k + 3] = tag;
   }
 }
 
@@ -124,10 +124,10 @@ export function makeScene(name, n, capacity, seed = 12345) {
     const n1 = Math.floor(n * 0.6), n2 = n - n1;
     // Two disks on a slightly offset approach so the encounter is a grazing
     // one — head-on mergers are over too fast to be interesting.
-    disk({ posMass, vel, offset: 0, n: n1, rng,
+    disk({ posMass, vel, offset: 0, n: n1, rng, tag: 0,
            center: [-1.9, 0.15, -0.4], bulk: [0.25, 0, 0.05],
            axis: [0.25, 1, 0.12], radius: 1.15, mass: 1.0 });
-    disk({ posMass, vel, offset: n1, n: n2, rng,
+    disk({ posMass, vel, offset: n1, n: n2, rng, tag: 1,
            center: [1.9, -0.15, 0.4], bulk: [-0.36, 0, -0.07],
            axis: [-0.45, 1, 0.35], radius: 0.95, mass: 0.65 });
   } else if (name === "single") {
