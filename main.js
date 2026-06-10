@@ -23,6 +23,8 @@ const VOL_FIXED = 2e7;     // mass -> fixed-point for atomic accumulation
 const canvas = document.getElementById("gpu");
 const overlay = document.getElementById("overlay");
 const stats = document.getElementById("stats");
+const startPanel = document.getElementById("start");
+const hud = document.getElementById("hud");
 
 function showFallback(detail) {
   document.getElementById("fallback").hidden = false;
@@ -215,6 +217,7 @@ async function init() {
     spawnCursor: 0,        // next reserve slot for flung mass
     meanMass: 1,
     paused: false,
+    started: false,
     timescale: 1,
     trails: 0.3,
     nebula: 0.55,
@@ -554,11 +557,11 @@ async function init() {
   };
   ui.scene.addEventListener("change", () => {
     state.scene = ui.scene.value;
-    reset();
+    if (state.started) reset();
   });
   ui.count.addEventListener("change", () => {
     state.n = parseInt(ui.count.value, 10);
-    reset();
+    if (state.started) reset();
   });
   ui.speed.addEventListener("input", () => {
     state.timescale = parseFloat(ui.speed.value);
@@ -574,12 +577,14 @@ async function init() {
     state.lensing = parseFloat(ui.lensing.value);
   });
   function togglePause() {
+    if (!state.started) return;
     state.paused = !state.paused;
     ui.pause.textContent = state.paused ? "resume" : "pause";
   }
   ui.pause.addEventListener("click", togglePause);
-  ui.reset.addEventListener("click", reset);
+  ui.reset.addEventListener("click", () => { if (state.started) reset(); });
   addEventListener("keydown", (e) => {
+    if (!state.started) return;
     if (e.code === "Space" && e.target.tagName !== "BUTTON") {
       e.preventDefault();
       togglePause();
@@ -750,7 +755,8 @@ async function init() {
     requestAnimationFrame(frame);
   }
 
-  // Browsers may restore form values across reloads; trust the controls.
+  // Browsers may restore form values across reloads; trust the controls, but
+  // wait for the user to choose a scene before allocating and starting the sim.
   state.scene = ui.scene.value;
   state.n = parseInt(ui.count.value, 10);
   state.timescale = parseFloat(ui.speed.value);
@@ -758,9 +764,28 @@ async function init() {
   state.nebula = parseFloat(ui.nebula.value);
   state.lensing = parseFloat(ui.lensing.value);
 
+  function startDemo(scene) {
+    if (state.started) return;
+    state.scene = scene || ui.scene.value;
+    ui.scene.value = state.scene;
+    state.paused = false;
+    ui.pause.textContent = "pause";
+    startPanel.hidden = true;
+    hud.hidden = false;
+    stats.hidden = false;
+    configureSize();
+    reset();
+    state.started = true;
+    lastT = performance.now();
+    fpsAvg = 0;
+    requestAnimationFrame(frame);
+  }
+
+  startPanel.querySelectorAll("[data-scene]").forEach((button) => {
+    button.addEventListener("click", () => startDemo(button.dataset.scene));
+  });
+
   configureSize();
-  reset();
-  requestAnimationFrame(frame);
 }
 
 init().catch((e) => {
