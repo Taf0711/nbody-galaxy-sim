@@ -1,0 +1,10 @@
+# build artifacts
+build/
+.DS_Store
+__pycache__/
+
+# AI-assistant docs and state (kept local, not part of the published repo)
+CLAUDE.md
+PLAN.md
+AGENTS.md
+.claude/
