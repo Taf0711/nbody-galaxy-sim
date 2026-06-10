@@ -19,7 +19,27 @@
   <canvas id="gpu"></canvas>
   <canvas id="overlay"></canvas>
 
-  <div class="panel" id="hud">
+  <div class="panel start" id="start">
+    <p class="eyebrow">webgpu n-body</p>
+    <h1>choose a simulation</h1>
+    <p class="intro">Pick an initial scene. You can still change body count, trails, nebula and lensing after launch.</p>
+    <div class="start-options" aria-label="simulation choices">
+      <button class="start-card" data-scene="collision">
+        <span>galaxy collision</span>
+        <small>two disk galaxies with massive cores</small>
+      </button>
+      <button class="start-card" data-scene="single">
+        <span>single galaxy</span>
+        <small>a rotating disk viewed in isolation</small>
+      </button>
+      <button class="start-card" data-scene="cloud">
+        <span>plummer cloud</span>
+        <small>a cold stellar cloud collapsing inward</small>
+      </button>
+    </div>
+  </div>
+
+  <div class="panel" id="hud" hidden>
     <h1>n-body galaxy simulator</h1>
     <div class="row">
       <label for="scene">scene</label>
@@ -66,7 +86,7 @@
     <a class="src" href="https://github.com/Taf0711/nbody-galaxy-sim" id="srclink" target="_blank" rel="noopener">source &amp; writeup →</a>
   </div>
 
-  <div class="stats" id="stats"></div>
+  <div class="stats" id="stats" hidden></div>
 
   <div class="fallback" id="fallback" hidden>
     <div>
