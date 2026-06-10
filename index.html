@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>N-Body Galaxy Simulator</title>
+  <meta name="description"
+        content="Real-time gravitational n-body simulation running entirely in your browser on WebGPU. Fling mass into colliding galaxies and watch them evolve.">
+  <meta property="og:title" content="N-Body Galaxy Simulator">
+  <meta property="og:description"
+        content="Tens of thousands of gravitating bodies at 60 fps, computed in your browser on WebGPU. Fling mass into colliding galaxies.">
+  <meta property="og:image" content="https://taf0711.github.io/nbody-galaxy-sim/preview.png">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="0.9em" font-size="90">✦</text></svg>'>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="gpu"></canvas>
+  <canvas id="overlay"></canvas>
+
+  <div class="panel" id="hud">
+    <h1>n-body galaxy simulator</h1>
+    <div class="row">
+      <label for="scene">scene</label>
+      <select id="scene">
+        <option value="collision" selected>galaxy collision</option>
+        <option value="single">single galaxy</option>
+        <option value="cloud">plummer cloud</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="count">bodies</label>
+      <select id="count">
+        <option value="8192">8,192</option>
+        <option value="16384">16,384</option>
+        <option value="32768" selected>32,768</option>
+        <option value="65536">65,536</option>
+        <option value="131072">131,072 (slow on older GPUs)</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="speed">speed</label>
+      <input id="speed" type="range" min="0.25" max="4" step="0.25" value="1">
+    </div>
+    <div class="row">
+      <label for="trails">trails</label>
+      <input id="trails" type="range" min="0" max="0.92" step="0.02" value="0.3">
+    </div>
+    <div class="row">
+      <label for="nebula">nebula</label>
+      <input id="nebula" type="range" min="0" max="1.5" step="0.05" value="0.55">
+    </div>
+    <div class="row">
+      <label for="lensing">lensing</label>
+      <input id="lensing" type="range" min="0" max="2" step="0.1" value="0.6">
+    </div>
+    <div class="row buttons">
+      <button id="pause" title="space">pause</button>
+      <button id="reset" title="r">reset</button>
+    </div>
+    <div class="hints">
+      drag&nbsp;·&nbsp;orbit&ensp;scroll&nbsp;·&nbsp;zoom<br>
+      <b>shift-drag or right-drag&nbsp;·&nbsp;fling mass into the sim</b>
+    </div>
+    <a class="src" href="https://github.com/Taf0711/nbody-galaxy-sim" id="srclink" target="_blank" rel="noopener">source &amp; writeup →</a>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="fallback" id="fallback" hidden>
+    <div>
+      <h2>WebGPU not available</h2>
+      <p>This demo computes gravity for tens of thousands of bodies per frame
+         on your GPU. It needs a browser with WebGPU: Chrome, Edge, or
+         Safari 18+ on a recent device.</p>
+      <p id="fallback-detail"></p>
+    </div>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
