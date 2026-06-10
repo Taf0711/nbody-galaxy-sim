@@ -24,12 +24,12 @@
 <text x="736.0" y="442" text-anchor="middle" font-size="11" fill="#555">8</text>
 <line x1="70.0" y1="379.6" x2="736.0" y2="68.4" stroke="#bbb" stroke-dasharray="5,4"/>
 <text x="730.0" y="84.4" text-anchor="end" font-size="11" fill="#888">ideal</text>
-<polyline points="70.0,379.6 165.1,368.8 355.4,341.7 545.7,332.8 736.0,328.2" fill="none" stroke="#16a085" stroke-width="2.2"/>
+<polyline points="70.0,379.6 165.1,336.2 355.4,271.6 545.7,267.7 736.0,262.5" fill="none" stroke="#16a085" stroke-width="2.2"/>
 <circle cx="70.0" cy="379.6" r="3.4" fill="#16a085"/>
-<circle cx="165.1" cy="368.8" r="3.4" fill="#16a085"/>
-<circle cx="355.4" cy="341.7" r="3.4" fill="#16a085"/>
-<circle cx="545.7" cy="332.8" r="3.4" fill="#16a085"/>
-<circle cx="736.0" cy="328.2" r="3.4" fill="#16a085"/>
+<circle cx="165.1" cy="336.2" r="3.4" fill="#16a085"/>
+<circle cx="355.4" cy="271.6" r="3.4" fill="#16a085"/>
+<circle cx="545.7" cy="267.7" r="3.4" fill="#16a085"/>
+<circle cx="736.0" cy="262.5" r="3.4" fill="#16a085"/>
 <text x="18" y="232.0" font-size="12" fill="#333" transform="rotate(-90 18 232.0)" text-anchor="middle">speedup vs 1 thread</text>
 <text x="403.0" y="468" text-anchor="middle" font-size="12" fill="#333">threads</text>
 </svg>
