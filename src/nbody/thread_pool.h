@@ -8,6 +8,10 @@
 #include <thread>
 #include <vector>
 
+#ifdef __APPLE__
+#include <pthread/qos.h>
+#endif
+
 namespace nbody {
 
 // Fixed pool that executes chunked parallel-for jobs. A pool of size T spawns
@@ -66,6 +70,13 @@ class ThreadPool {
 
  private:
   void worker_loop() {
+#ifdef __APPLE__
+    // On Apple Silicon, thread QoS decides P-core vs E-core eligibility.
+    // Workers inheriting an unfavorable class get parked on E-cores and the
+    // pool silently scales ~2x instead of ~5x; pin them to a class the
+    // scheduler will put on performance cores.
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+#endif
     std::uint64_t seen = 0;
     for (;;) {
       {

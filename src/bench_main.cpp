@@ -95,15 +95,16 @@ void print_row(const Row& r) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  bool quick = false, scaling = true;
+  bool quick = false, scaling = true, sweep = true;
   std::string csv_path = "bench/results.csv";
   for (int i = 1; i < argc; ++i) {
     if (!std::strcmp(argv[i], "--quick")) quick = true;
     else if (!std::strcmp(argv[i], "--no-scaling")) scaling = false;
+    else if (!std::strcmp(argv[i], "--only-scaling")) sweep = false;
     else if (!std::strcmp(argv[i], "--csv") && i + 1 < argc) csv_path = argv[++i];
     else {
       std::fprintf(stderr,
-                   "usage: %s [--quick] [--csv path] [--no-scaling]\n",
+                   "usage: %s [--quick] [--csv path] [--no-scaling] [--only-scaling]\n",
                    argv[0]);
       return 2;
     }
@@ -131,8 +132,9 @@ int main(int argc, char** argv) {
       {"bh_mt", {16384, 65536, 262144, 1048576}, 0.5f},
   };
 
-  std::printf("== sweep ==\n");
+  if (sweep) std::printf("== sweep ==\n");
   for (const auto& c : cases) {
+    if (!sweep) break;
     for (std::size_t n : c.sizes) {
       if (quick && n > 16384) continue;
       Row r{"sweep", c.method, n, 1, c.theta, 0, 0, 0};
