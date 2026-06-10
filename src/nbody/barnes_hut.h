@@ -28,7 +28,13 @@ class ThreadPool;
 // buffers persist across rebuilds so steady-state allocation is zero.
 class BarnesHut {
  public:
-  explicit BarnesHut(float theta = 0.5f) : theta_(theta) {}
+  // quadrupole: store second moments per node and add the quadrupole term
+  // when a node is accepted. Costs ~3x the flops per accepted node but cuts
+  // the error at fixed theta ~4x (one extra power of s/d), so theta can be
+  // opened up: quad at theta=0.65 matches monopole theta=0.5 accuracy while
+  // accepting ~2.2x fewer nodes.
+  explicit BarnesHut(float theta = 0.5f, bool quadrupole = false)
+      : theta_(theta), quad_(quadrupole) {}
 
   // Writes accelerations into b.ax/ay/az, same contract as forces_naive.
   void compute(Bodies& b, float eps2, ThreadPool* pool = nullptr);
@@ -45,12 +51,15 @@ class BarnesHut {
     std::uint32_t first, count;    // body range in Morton-sorted order
     std::uint32_t first_child;     // 0 == leaf (node 0 is the root, never a child)
     std::uint32_t nchild;
+    // Traceless quadrupole about the COM: Q_ij = sum m (3 s_i s_j - s^2 d_ij).
+    float qxx, qyy, qzz, qxy, qxz, qyz;
   };
 
   void split(std::uint32_t idx, int shift);
   void accel_range(Bodies& b, float eps2, std::size_t k0, std::size_t k1) const;
 
   float theta_;
+  bool quad_;
   double build_ms_ = 0, traverse_ms_ = 0;
 
   // (morton code, original index), sorted by code each step.

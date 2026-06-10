@@ -24,6 +24,7 @@ COLORS = {
     "simd": "#2980b9",
     "simd_mt": "#16a085",
     "bh_mt": "#8e44ad",
+    "bh_quad_mt": "#d4488e",
 }
 LABELS = {
     "naive": "naive O(n²), 1 thread",
@@ -31,6 +32,7 @@ LABELS = {
     "simd": "NEON SIMD, 1 thread",
     "simd_mt": "NEON SIMD, threaded",
     "bh_mt": "Barnes-Hut θ=0.5, threaded",
+    "bh_quad_mt": "Barnes-Hut quadrupole θ=0.65",
 }
 
 W, H = 760, 480
@@ -100,7 +102,7 @@ def sweep_chart(rows):
              f'font-size="12" fill="#333">bodies (N)</text>')
 
     ly = MT + 14
-    for method in ["naive", "naive_mt", "simd", "simd_mt", "bh_mt"]:
+    for method in ["naive", "naive_mt", "simd", "simd_mt", "bh_mt", "bh_quad_mt"]:
         pts = sorted(
             [(int(r["n"]), float(r["ms_step"])) for r in rows if r["method"] == method])
         if not pts:

@@ -121,15 +121,19 @@ int main(int argc, char** argv) {
     const char* method;
     std::vector<std::size_t> sizes;
     float theta;
+    bool quad;
   };
   // Sizes chosen so each config finishes in seconds while the O(n^2) vs
-  // O(n log n) divergence is unmistakable.
+  // O(n log n) divergence is unmistakable. bh_quad at theta=0.65 is the
+  // equal-accuracy comparison against monopole at theta=0.5 (both ~3e-3 rms
+  // force error on a Plummer sphere — see the test suite).
   const std::vector<Case> cases = {
-      {"naive", {1024, 4096, 16384}, 0},
-      {"naive_mt", {4096, 16384, 65536}, 0},
-      {"simd", {1024, 4096, 16384, 65536}, 0},
-      {"simd_mt", {4096, 16384, 65536, 131072}, 0},
-      {"bh_mt", {16384, 65536, 262144, 1048576}, 0.5f},
+      {"naive", {1024, 4096, 16384}, 0, false},
+      {"naive_mt", {4096, 16384, 65536}, 0, false},
+      {"simd", {1024, 4096, 16384, 65536}, 0, false},
+      {"simd_mt", {4096, 16384, 65536, 131072}, 0, false},
+      {"bh_mt", {16384, 65536, 262144, 1048576}, 0.5f, false},
+      {"bh_quad_mt", {16384, 65536, 262144, 1048576}, 0.65f, true},
   };
 
   if (sweep) std::printf("== sweep ==\n");
@@ -159,9 +163,9 @@ int main(int argc, char** argv) {
             n,
             [&](nbody::Bodies& b) { nbody::forces_simd(b, 0.0025f, &pool); },
             nullptr, nullptr, nullptr, quick);
-      } else {  // bh_mt
+      } else {  // bh_mt / bh_quad_mt
         r.threads = ncpu;
-        nbody::BarnesHut bh(c.theta);
+        nbody::BarnesHut bh(c.theta, c.quad);
         r.ms_step = time_method(
             n,
             [&](nbody::Bodies& b) { bh.compute(b, 0.0025f, &pool); }, &bh,

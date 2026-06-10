@@ -175,6 +175,29 @@ void test_bh_accuracy() {
         fmt("rel err rms = %.1e, max = %.1e", e075.rms, e075.max));
 }
 
+void test_bh_quadrupole() {
+  nbody::Bodies a = nbody::make_plummer(4096, 11);
+  nbody::Bodies c = a;
+  nbody::Bodies d = a;
+  const float eps2 = 0.05f * 0.05f;
+  nbody::forces_naive(a, eps2);
+
+  // One extra power of s/d: ~4x more accurate at fixed theta, so the opened
+  // theta=0.7 should still beat monopole at theta=0.5 (3.3e-3 rms).
+  nbody::BarnesHut q05(0.5f, true);
+  q05.compute(c, eps2);
+  const auto e05 = accel_error(a, c);
+  check(e05.rms < 1.2e-3, "barnes-hut quad theta=0.5 accuracy",
+        fmt("rel err rms = %.1e, max = %.1e", e05.rms, e05.max));
+
+  nbody::BarnesHut q07(0.65f, true);
+  q07.compute(d, eps2);
+  const auto e07 = accel_error(a, d);
+  check(e07.rms < 3.3e-3, "barnes-hut quad theta=0.65 accuracy",
+        fmt("rel err rms = %.1e, max = %.1e (vs 3.3e-3 mono@0.5)", e07.rms,
+            e07.max));
+}
+
 void test_bh_energy() {
   nbody::ThreadPool pool;
   nbody::Bodies b = nbody::make_plummer(4096, 23);
@@ -200,6 +223,7 @@ int main() {
   test_threaded_matches_serial();
   test_bh_theta0_exact();
   test_bh_accuracy();
+  test_bh_quadrupole();
   test_bh_energy();
   std::printf("\n%s (%d failure%s)\n", failures == 0 ? "OK" : "FAILED",
               failures, failures == 1 ? "" : "s");

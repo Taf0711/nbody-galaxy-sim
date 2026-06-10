@@ -147,8 +147,8 @@ void BarnesHut::compute(Bodies& b, float eps2, ThreadPool* pool) {
   nodes_.push_back(root);
   split(0, 3 * (kMortonBits - 1));  // top octant digit lives at bits 60..62
 
-  // 5. Centers of mass: children always follow parents, so one reverse sweep
-  // aggregates leaves before the nodes that contain them.
+  // 5. Centers of mass (and quadrupoles): children always follow parents, so
+  // one reverse sweep aggregates leaves before the nodes that contain them.
   for (std::size_t k = nodes_.size(); k-- > 0;) {
     Node& nd = nodes_[k];
     float M = 0, cx = 0, cy = 0, cz = 0;
@@ -173,6 +173,45 @@ void BarnesHut::compute(Bodies& b, float eps2, ThreadPool* pool) {
     nd.comx = cx * invM;
     nd.comy = cy * invM;
     nd.comz = cz * invM;
+
+    if (!quad_) continue;
+    // Q is additive over particles about a fixed center, so a child folds in
+    // as its own Q plus the point-mass term for its COM offset (the cross
+    // terms vanish because the child's moments are taken about its own COM —
+    // this composition is exact, not a truncation).
+    float qxx = 0, qyy = 0, qzz = 0, qxy = 0, qxz = 0, qyz = 0;
+    auto add_point = [&](float m, float tx, float ty, float tz) {
+      const float t2 = tx * tx + ty * ty + tz * tz;
+      qxx += m * (3.0f * tx * tx - t2);
+      qyy += m * (3.0f * ty * ty - t2);
+      qzz += m * (3.0f * tz * tz - t2);
+      qxy += m * 3.0f * tx * ty;
+      qxz += m * 3.0f * tx * tz;
+      qyz += m * 3.0f * ty * tz;
+    };
+    if (nd.first_child == 0) {
+      for (std::uint32_t i = nd.first; i < nd.first + nd.count; ++i)
+        add_point(sm_[i], sx_[i] - nd.comx, sy_[i] - nd.comy,
+                  sz_[i] - nd.comz);
+    } else {
+      for (std::uint32_t c = 0; c < nd.nchild; ++c) {
+        const Node& ch = nodes_[nd.first_child + c];
+        add_point(ch.mass, ch.comx - nd.comx, ch.comy - nd.comy,
+                  ch.comz - nd.comz);
+        qxx += ch.qxx;
+        qyy += ch.qyy;
+        qzz += ch.qzz;
+        qxy += ch.qxy;
+        qxz += ch.qxz;
+        qyz += ch.qyz;
+      }
+    }
+    nd.qxx = qxx;
+    nd.qyy = qyy;
+    nd.qzz = qzz;
+    nd.qxy = qxy;
+    nd.qxz = qxz;
+    nd.qyz = qyz;
   }
   build_ms_ = ms_since(t0);
 
@@ -219,10 +258,25 @@ void BarnesHut::accel_range(Bodies& b, float eps2, std::size_t k0,
       if (!contains_self && nd.size * nd.size < theta2 * d2) {
         const float r2 = d2 + eps2;
         const float inv = 1.0f / std::sqrt(r2);
-        const float s = nd.mass * inv * inv * inv;
+        const float inv2 = inv * inv;
+        const float s = nd.mass * inv * inv2;
         ax += s * dx;
         ay += s * dy;
         az += s * dz;
+        if (quad_) {
+          // With d = body - COM and our dx = COM - body = -d, the quadrupole
+          // acceleration a = (Q.d)/r^5 - (5/2)(d.Q.d) d / r^7 becomes
+          //   a = -(Q.dx)/r^5 + (5/2)(dx.Q.dx) dx / r^7.
+          const float qdx = nd.qxx * dx + nd.qxy * dy + nd.qxz * dz;
+          const float qdy = nd.qxy * dx + nd.qyy * dy + nd.qyz * dz;
+          const float qdz = nd.qxz * dx + nd.qyz * dy + nd.qzz * dz;
+          const float dqd = dx * qdx + dy * qdy + dz * qdz;
+          const float inv5 = inv2 * inv2 * inv;
+          const float c7 = 2.5f * dqd * inv5 * inv2;
+          ax += c7 * dx - qdx * inv5;
+          ay += c7 * dy - qdy * inv5;
+          az += c7 * dz - qdz * inv5;
+        }
       } else if (nd.first_child == 0) {
         // Leaf: direct sum over its contiguous body range, 4 lanes at a time.
         const std::uint32_t lo = nd.first, hi = nd.first + nd.count;
