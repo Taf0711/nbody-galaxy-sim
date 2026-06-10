@@ -755,8 +755,13 @@ async function init() {
     requestAnimationFrame(frame);
   }
 
-  // Browsers may restore form values across reloads; trust the controls, but
-  // wait for the user to choose a scene before allocating and starting the sim.
+  // Browsers may restore form values and even dynamic hidden state across
+  // reloads/back-forward cache. Force the pre-launch UI into a known state:
+  // start screen visible, simulation HUD/stats hidden, no buffers allocated.
+  startPanel.hidden = false;
+  hud.hidden = true;
+  stats.hidden = true;
+
   state.scene = ui.scene.value;
   state.n = parseInt(ui.count.value, 10);
   state.timescale = parseFloat(ui.speed.value);
