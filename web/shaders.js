@@ -214,6 +214,136 @@ fn blur(in: VSOut) -> @location(0) vec4f {
 }
 `;
 
+// Volumetric nebula, stage 1: deposit particle mass into a 96^3 density
+// grid. Float atomics don't exist in WGSL, so the grid is fixed-point u32
+// accumulated with atomicAdd, then a second pass converts it into a
+// filterable 3D texture for the ray marcher. Central masses are capped so a
+// single body can't nuke one cell.
+
+export const VOLUME_WGSL = /* wgsl */ `
+struct VolU {
+  boxMin: vec3f,
+  count: u32,
+  invBoxSize: vec3f,   // 1 / boxSize, per axis
+  dim: u32,
+  depositCap: f32,     // max mass deposited by one body
+  fixedScale: f32,     // mass -> fixed-point
+  densNorm: f32,       // cell mass -> O(1) density for the marcher
+  _pad: f32,
+}
+
+@group(0) @binding(0) var<storage, read> posMass: array<vec4f>;
+@group(0) @binding(1) var<storage, read_write> grid: array<atomic<u32>>;
+@group(0) @binding(2) var<uniform> U: VolU;
+@group(0) @binding(3) var volOut: texture_storage_3d<rgba16float, write>;
+
+@compute @workgroup_size(256)
+fn splat(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= U.count) { return; }
+  let p = posMass[i];
+  let g = (p.xyz - U.boxMin) * U.invBoxSize;
+  if (any(g < vec3f(0.0)) || any(g >= vec3f(1.0))) { return; }
+  let c = min(vec3u(g * f32(U.dim)), vec3u(U.dim - 1u));
+  let idx = (c.z * U.dim + c.y) * U.dim + c.x;
+  atomicAdd(&grid[idx], u32(min(p.w, U.depositCap) * U.fixedScale));
+}
+
+@compute @workgroup_size(4, 4, 4)
+fn to_tex(@builtin(global_invocation_id) gid: vec3u) {
+  if (any(gid >= vec3u(U.dim))) { return; }
+  let idx = (gid.z * U.dim + gid.y) * U.dim + gid.x;
+  let mass = f32(atomicLoad(&grid[idx])) / U.fixedScale;
+  textureStore(volOut, gid, vec4f(mass * U.densNorm, 0.0, 0.0, 0.0));
+}
+`;
+
+// Stage 2: march camera rays through the density volume (emission +
+// absorption, front-to-back). Runs at half resolution; the result is
+// composited under the star layer. Start jittered per pixel to trade
+// banding for noise.
+
+export const VOLMARCH_WGSL = /* wgsl */ `
+struct VSOut {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+}
+
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
+  var out: VSOut;
+  let xy = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
+  out.pos = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);
+  out.uv = vec2f(xy.x, 1.0 - xy.y);
+  return out;
+}
+
+struct MarchU {
+  eye:   vec4f,   // xyz, w = tan(fov/2)
+  right: vec4f,   // xyz, w = aspect
+  up:    vec4f,   // xyz, w = nebula density multiplier
+  fwd:   vec4f,   // xyz
+  box:   vec4f,   // xyz = boxMin, w = box side
+}
+
+@group(0) @binding(0) var vol: texture_3d<f32>;
+@group(0) @binding(1) var volSamp: sampler;
+@group(0) @binding(2) var<uniform> M: MarchU;
+
+fn hash12(p: vec2f) -> f32 {
+  let q = fract(p * vec2f(0.1031, 0.0973));
+  let r = q + dot(q, q.yx + 33.33);
+  return fract((r.x + r.y) * r.x);
+}
+
+@fragment
+fn fs(in: VSOut) -> @location(0) vec4f {
+  let dens = M.up.w;
+  if (dens <= 0.0) { return vec4f(0.0); }
+
+  let tanF = M.eye.w;
+  let ndc = vec2f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0);
+  let dir = normalize(M.fwd.xyz +
+                      M.right.xyz * ndc.x * tanF * M.right.w +
+                      M.up.xyz * ndc.y * tanF);
+
+  // Slab intersection with the volume cube.
+  let bmin = M.box.xyz;
+  let bmax = bmin + vec3f(M.box.w);
+  let inv = 1.0 / dir;
+  let t0v = (bmin - M.eye.xyz) * inv;
+  let t1v = (bmax - M.eye.xyz) * inv;
+  let tn = max(max(min(t0v.x, t1v.x), min(t0v.y, t1v.y)), min(t0v.z, t1v.z));
+  let tf = min(min(max(t0v.x, t1v.x), max(t0v.y, t1v.y)), max(t0v.z, t1v.z));
+  if (tf <= max(tn, 0.0)) { return vec4f(0.0); }
+
+  const STEPS = 64;
+  let t0 = max(tn, 0.0);
+  let dt = (tf - t0) / f32(STEPS);
+  var t = t0 + dt * hash12(in.pos.xy);
+
+  var acc = vec3f(0.0);
+  var trans = 1.0;
+  for (var s = 0; s < STEPS; s++) {
+    let p = M.eye.xyz + dir * t;
+    let q = (p - bmin) / M.box.w;
+    let d = textureSampleLevel(vol, volSamp, q, 0.0).r * dens;
+    if (d > 1e-4) {
+      // Emissive palette: thin gas deep indigo, denser teal, cores warm.
+      let s1 = 1.0 - exp(-d * 1.5);
+      var col = mix(vec3f(0.10, 0.13, 0.38), vec3f(0.22, 0.50, 0.62), s1);
+      col = mix(col, vec3f(0.95, 0.80, 0.55), s1 * s1);
+      let a = 1.0 - exp(-d * 2.2 * dt);
+      acc += trans * col * a * 1.8;
+      trans *= 1.0 - a;
+      if (trans < 0.02) { break; }
+    }
+    t += dt;
+  }
+  return vec4f(acc, 1.0 - trans);
+}
+`;
+
 export const COMPOSITE_WGSL = /* wgsl */ `
 struct VSOut {
   @builtin(position) pos: vec4f,
@@ -229,9 +359,17 @@ fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
   return out;
 }
 
+struct CompU {
+  lens0:  vec4f,   // xy = core screen uv, z = thetaE^2, w = enabled
+  lens1:  vec4f,
+  params: vec4f,   // x = aspect
+}
+
 @group(0) @binding(0) var hdrTex: texture_2d<f32>;
 @group(0) @binding(1) var hdrSamp: sampler;
 @group(0) @binding(2) var bloomTex: texture_2d<f32>;
+@group(0) @binding(3) var nebulaTex: texture_2d<f32>;
+@group(0) @binding(4) var<uniform> C: CompU;
 
 fn hash2(p: vec2f) -> f32 {
   let q = fract(p * vec2f(0.1031, 0.0973));
@@ -239,15 +377,37 @@ fn hash2(p: vec2f) -> f32 {
   return fract((r.x + r.y) * r.x);
 }
 
+// Point-mass gravitational lens, thin-lens equation beta = theta -
+// thetaE^2 / theta: to draw image position theta we sample the unlensed
+// scene at beta. Inverse mapping means rings and arcs come out for free.
+fn lensWarp(uv: vec2f) -> vec2f {
+  var w = uv;
+  for (var i = 0; i < 2; i++) {
+    let L = select(C.lens1, C.lens0, i == 0);
+    if (L.w > 0.5) {
+      var d = w - L.xy;
+      d.x *= C.params.x;
+      let r2 = dot(d, d) + 1e-5;
+      var shift = d * (L.z / r2);
+      shift.x /= C.params.x;
+      w -= shift;
+    }
+  }
+  return w;
+}
+
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4f {
-  let hdr = textureSample(hdrTex, hdrSamp, in.uv).rgb;
-  let bloom = textureSample(bloomTex, hdrSamp, in.uv).rgb;
-  var c = vec3f(1.0) - exp(-(hdr + bloom * 0.9) * 1.25);
+  let wuv = lensWarp(in.uv);
+  let hdr = textureSample(hdrTex, hdrSamp, wuv).rgb;
+  let bloom = textureSample(bloomTex, hdrSamp, wuv).rgb;
+  let nebula = textureSample(nebulaTex, hdrSamp, wuv).rgb;
+  var c = vec3f(1.0) - exp(-(hdr + bloom * 0.9 + nebula) * 1.25);
 
   // Sparse static background starfield, post-tonemap so exposure changes
-  // don't swallow it.
-  let h = hash2(floor(in.pos.xy / 1.5));
+  // don't swallow it — sampled through the lens warp, so the cores bend the
+  // background into arcs.
+  let h = hash2(floor(wuv * 900.0));
   if (h > 0.9988) {
     let b = (h - 0.9988) / 0.0012;
     c += vec3f(0.55, 0.6, 0.75) * b * b * 0.30;

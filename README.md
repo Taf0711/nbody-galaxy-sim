@@ -8,8 +8,9 @@ your browser** — fling mass into a galaxy collision and watch it evolve.
 
 **[▶ Live demo](https://taf0711.github.io/nbody-galaxy-sim/)** — needs WebGPU
 (Chrome, Edge, or Safari 18+). Drag to orbit, scroll or pinch to zoom,
-**shift-drag (or right-drag) to fling mass into the simulation**, and try the
-trails slider.
+**shift-drag (or right-drag) to fling mass into the simulation**, and play
+with the trails, nebula (ray-marched volumetrics) and lensing (gravitational
+light bending) sliders.
 
 ![galaxy collision in the WebGPU demo](assets/screenshot.png)
 
@@ -139,6 +140,23 @@ traversal is a poor fit for lockstep GPU execution, and at the body counts a
 web page wants (≤131k), tiled brute force already saturates the ALUs while
 staying simple enough to verify. The algorithmic story lives in the CPU
 phases; the GPU's job is to be fast and beautiful.
+
+**Ray tracing.** Two ray techniques sit on top of the sprite renderer:
+
+* *Volumetric nebula* — every frame a compute pass deposits particle mass
+  into a 96³ density grid (fixed-point `atomicAdd`, since WGSL has no float
+  atomics), a second pass converts it to a filterable 3D texture, and a
+  half-resolution pass ray-marches camera rays through it with emission and
+  absorption (64 jittered steps, front-to-back, early-out when opaque). The
+  gas you see is the actual simulated mass distribution, glowing indigo →
+  teal → gold with density.
+* *Gravitational lensing* — the composite pass bends rays around the two
+  galactic cores using the point-mass thin-lens equation β = θ − θ²ᴱ/θ,
+  warping the rendered scene **and** the background starfield into arcs and
+  Einstein rings. Core positions are read back from the simulation buffer
+  each frame, so the lenses ride along as the cores orbit and merge. (The
+  deflection strength is stylized — a real galactic core would warp far less
+  at this scale — but the optics are the real equation.)
 
 ## Correctness
 

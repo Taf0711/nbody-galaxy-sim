@@ -2,7 +2,8 @@
 // additive HDR sprites + bloom + tonemap. No build step, no dependencies.
 
 import { OrbitCamera, add, scale, sub, dot } from "./camera.js";
-import { SIM_WGSL, RENDER_WGSL, POST_WGSL, COMPOSITE_WGSL, FADE_WGSL } from "./shaders.js";
+import { SIM_WGSL, RENDER_WGSL, POST_WGSL, COMPOSITE_WGSL, FADE_WGSL,
+         VOLUME_WGSL, VOLMARCH_WGSL } from "./shaders.js";
 import { makeScene, plummerBlob } from "./galaxy.js";
 
 const DT0 = 1 / 240;       // base timestep (sim units)
@@ -11,6 +12,13 @@ const RESERVE = 16384;     // extra buffer slots for flung mass
 const BLOB_N = 1536;       // particles per fling
 const VMAX_COLOR = 1.3;    // speed -> color ramp ceiling
 const BASE_SPRITE = 0.0085;
+
+// Volumetric nebula grid: fixed cube so the density texture doesn't swim
+// when the camera moves.
+const GRID_DIM = 96;
+const BOX_MIN = -5;
+const BOX_SIZE = 10;
+const VOL_FIXED = 2e7;     // mass -> fixed-point for atomic accumulation
 
 const canvas = document.getElementById("gpu");
 const overlay = document.getElementById("overlay");
@@ -45,6 +53,8 @@ async function init() {
   const postModule = device.createShaderModule({ code: POST_WGSL });
   const compositeModule = device.createShaderModule({ code: COMPOSITE_WGSL });
   const fadeModule = device.createShaderModule({ code: FADE_WGSL });
+  const volumeModule = device.createShaderModule({ code: VOLUME_WGSL });
+  const marchModule = device.createShaderModule({ code: VOLMARCH_WGSL });
 
   // One explicit layout shared by all three entry points. layout:"auto"
   // would derive a per-entry-point layout containing only the bindings that
@@ -128,9 +138,72 @@ async function init() {
     primitive: { topology: "triangle-list" },
   });
 
+  const splatPipeline = device.createComputePipeline({
+    layout: "auto",
+    compute: { module: volumeModule, entryPoint: "splat" },
+  });
+  const toTexPipeline = device.createComputePipeline({
+    layout: "auto",
+    compute: { module: volumeModule, entryPoint: "to_tex" },
+  });
+  const marchPipeline = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: marchModule, entryPoint: "vs" },
+    fragment: { module: marchModule, entryPoint: "fs",
+                targets: [{ format: "rgba16float" }] },
+    primitive: { topology: "triangle-list" },
+  });
+
   const sampler = device.createSampler({
     magFilter: "linear",
     minFilter: "linear",
+  });
+
+  // --- volumetric nebula resources (camera-independent, so static) --------
+  const gridBuf = device.createBuffer({
+    size: GRID_DIM ** 3 * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  const volTex = device.createTexture({
+    size: [GRID_DIM, GRID_DIM, GRID_DIM],
+    dimension: "3d",
+    format: "rgba16float",
+    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+  });
+  const volTexView = volTex.createView();
+  const volU = device.createBuffer({
+    size: 48,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const marchU = device.createBuffer({
+    size: 80,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const compU = device.createBuffer({
+    size: 48,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const toTexBind = device.createBindGroup({
+    layout: toTexPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 1, resource: { buffer: gridBuf } },
+      { binding: 2, resource: { buffer: volU } },
+      { binding: 3, resource: volTexView },
+    ],
+  });
+  const marchBind = device.createBindGroup({
+    layout: marchPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: volTexView },
+      { binding: 1, resource: sampler },
+      { binding: 2, resource: { buffer: marchU } },
+    ],
+  });
+  // Lens positions: the two central masses, read back from the GPU with a
+  // frame of latency.
+  const coreStaging = device.createBuffer({
+    size: 32,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
   });
 
   // --- mutable sim state ---------------------------------------------------
@@ -144,9 +217,15 @@ async function init() {
     paused: false,
     timescale: 1,
     trails: 0.3,
+    nebula: 0.55,
+    lensing: 0.6,
     buffers: null,         // { posMass, vel, accel, simU, renderU }
     simBind: null,
     spriteBind: null,
+    splatBind: null,
+    coreSlots: [],         // buffer indices of the heavy central masses
+    cores: [],             // their world positions (readback, 1 frame stale)
+    readbackBusy: false,
     seed: 1,
   };
 
@@ -158,7 +237,9 @@ async function init() {
     }
     const cap = state.n + RESERVE;
     const bytes = cap * 16;
-    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
+    // COPY_SRC: the lens effect reads the core positions back each frame.
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST |
+                  GPUBufferUsage.COPY_SRC;
     state.capacity = cap;
     state.buffers = {
       posMass: device.createBuffer({ size: bytes, usage }),
@@ -191,6 +272,28 @@ async function init() {
         { binding: 2, resource: { buffer: b.renderU } },
       ],
     });
+    state.splatBind = device.createBindGroup({
+      layout: splatPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: b.posMass } },
+        { binding: 1, resource: { buffer: gridBuf } },
+        { binding: 2, resource: { buffer: volU } },
+      ],
+    });
+  }
+
+  function writeVolUniform() {
+    const buf = new ArrayBuffer(48);
+    const f = new Float32Array(buf);
+    const u = new Uint32Array(buf);
+    f.set([BOX_MIN, BOX_MIN, BOX_MIN], 0);
+    u[3] = state.count;
+    f.set([1 / BOX_SIZE, 1 / BOX_SIZE, 1 / BOX_SIZE], 4);
+    u[7] = GRID_DIM;
+    f[8] = state.meanMass * 20;        // deposit cap per body
+    f[9] = VOL_FIXED;
+    f[10] = 1 / (state.meanMass * 400); // cell mass -> O(1) density
+    device.queue.writeBuffer(volU, 0, buf);
   }
 
   // High speeds split into two substeps so dt stays integrable.
@@ -226,20 +329,35 @@ async function init() {
     state.count = state.n;
     state.spawnCursor = 0;
     state.meanMass = meanMass;
+    // The heavy central masses act as gravitational lenses; their initial
+    // positions are known, then the readback keeps them fresh.
+    if (state.scene === "collision") {
+      const n1 = Math.floor(state.n * 0.6);
+      state.coreSlots = [0, n1];
+      state.cores = [[-1.9, 0.15, -0.4], [1.9, -0.15, 0.4]];
+    } else if (state.scene === "single") {
+      state.coreSlots = [0];
+      state.cores = [[0, 0, 0]];
+    } else {
+      state.coreSlots = [];
+      state.cores = [];
+    }
     device.queue.writeBuffer(state.buffers.posMass, 0, posMass);
     device.queue.writeBuffer(state.buffers.vel, 0, vel);
     device.queue.writeBuffer(
       state.buffers.accel, 0, new Float32Array(state.capacity * 4));
     writeSimUniform();
+    writeVolUniform();
     // Prime accelerations so the first half-kick uses real forces.
     const encoder = device.createCommandEncoder();
     dispatchSim(encoder, ["forces"]);
     device.queue.submit([encoder.finish()]);
   }
 
-  // --- render targets (HDR + half-res bloom chain) -------------------------
+  // --- render targets (HDR + half-res bloom chain + nebula) ----------------
   let hdrTex = null, hdrView = null;
   let bloomA = null, bloomB = null, bloomAView = null, bloomBView = null;
+  let nebTex = null, nebView = null;
   let brightBind = null, blurBinds = null, compositeBind = null;
   const blurU = [0, 1, 2, 3].map(() =>
     device.createBuffer({
@@ -257,7 +375,7 @@ async function init() {
     overlay.width = w;
     overlay.height = h;
 
-    for (const t of [hdrTex, bloomA, bloomB]) t?.destroy();
+    for (const t of [hdrTex, bloomA, bloomB, nebTex]) t?.destroy();
     const mk = (tw, th) => device.createTexture({
       size: [tw, th],
       format: "rgba16float",
@@ -267,9 +385,11 @@ async function init() {
     const hw = Math.max(1, w >> 1), hh = Math.max(1, h >> 1);
     bloomA = mk(hw, hh);
     bloomB = mk(hw, hh);
+    nebTex = mk(hw, hh);
     hdrView = hdrTex.createView();
     bloomAView = bloomA.createView();
     bloomBView = bloomB.createView();
+    nebView = nebTex.createView();
 
     brightBind = device.createBindGroup({
       layout: brightPipeline.getBindGroupLayout(0),
@@ -303,6 +423,8 @@ async function init() {
         { binding: 0, resource: hdrView },
         { binding: 1, resource: sampler },
         { binding: 2, resource: bloomAView },
+        { binding: 3, resource: nebView },
+        { binding: 4, resource: { buffer: compU } },
       ],
     });
   }
@@ -348,6 +470,7 @@ async function init() {
     state.spawnCursor = (state.spawnCursor + BLOB_N) % RESERVE;
     state.count = Math.max(state.count, slot + fit);
     writeSimUniform();
+    writeVolUniform();
   }
 
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -424,6 +547,8 @@ async function init() {
     count: document.getElementById("count"),
     speed: document.getElementById("speed"),
     trails: document.getElementById("trails"),
+    nebula: document.getElementById("nebula"),
+    lensing: document.getElementById("lensing"),
     pause: document.getElementById("pause"),
     reset: document.getElementById("reset"),
   };
@@ -441,6 +566,12 @@ async function init() {
   });
   ui.trails.addEventListener("input", () => {
     state.trails = parseFloat(ui.trails.value);
+  });
+  ui.nebula.addEventListener("input", () => {
+    state.nebula = parseFloat(ui.nebula.value);
+  });
+  ui.lensing.addEventListener("input", () => {
+    state.lensing = parseFloat(ui.lensing.value);
   });
   function togglePause() {
     state.paused = !state.paused;
@@ -470,19 +601,78 @@ async function init() {
     const aspect = canvas.width / canvas.height;
 
     // Render uniforms.
+    const viewProj = camera.viewProj(aspect);
     const u = new Float32Array(28);
-    u.set(camera.viewProj(aspect), 0);
+    u.set(viewProj, 0);
     const r = camera.right(), up = camera.up();
     u.set([r[0], r[1], r[2], BASE_SPRITE * camera.dist / 4.6], 16);
     u.set([up[0], up[1], up[2], state.meanMass], 20);
     u.set([VMAX_COLOR, 0, 0, 0], 24);
     device.queue.writeBuffer(state.buffers.renderU, 0, u);
 
+    // Ray-march uniforms (camera basis + nebula density).
+    const eye = camera.eye(), fwd = camera.forward();
+    const tanF = Math.tan(camera.fovY / 2);
+    const m = new Float32Array(20);
+    m.set([eye[0], eye[1], eye[2], tanF], 0);
+    m.set([r[0], r[1], r[2], aspect], 4);
+    m.set([up[0], up[1], up[2], state.nebula], 8);
+    m.set([fwd[0], fwd[1], fwd[2], 0], 12);
+    m.set([BOX_MIN, BOX_MIN, BOX_MIN, BOX_SIZE], 16);
+    device.queue.writeBuffer(marchU, 0, m);
+
+    // Lens uniforms: project the (frame-stale) core positions to screen uv.
+    const cu = new Float32Array(12);
+    const projectLens = (slot, p) => {
+      const w = viewProj[3] * p[0] + viewProj[7] * p[1] + viewProj[11] * p[2] + viewProj[15];
+      if (w < 0.1) return;
+      const cx = viewProj[0] * p[0] + viewProj[4] * p[1] + viewProj[8] * p[2] + viewProj[12];
+      const cy = viewProj[1] * p[0] + viewProj[5] * p[1] + viewProj[9] * p[2] + viewProj[13];
+      cu.set([cx / w * 0.5 + 0.5, 0.5 - cy / w * 0.5,
+              0.0011 * state.lensing, 1], slot * 4);
+    };
+    if (state.lensing > 0) state.cores.forEach((p, i) => i < 2 && projectLens(i, p));
+    cu[8] = aspect;
+    device.queue.writeBuffer(compU, 0, cu);
+
     const encoder = device.createCommandEncoder();
     if (!state.paused) {
       for (let s = 0; s < substeps(); s++) {
         dispatchSim(encoder, ["kick_drift", "forces", "kick"]);
       }
+    }
+
+    // Volumetric nebula: deposit mass density, convert to a filterable 3D
+    // texture, then ray-march it at half resolution.
+    encoder.clearBuffer(gridBuf);
+    {
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(splatPipeline);
+      pass.setBindGroup(0, state.splatBind);
+      pass.dispatchWorkgroups(Math.ceil(state.count / 256));
+      pass.setPipeline(toTexPipeline);
+      pass.setBindGroup(0, toTexBind);
+      const wg = Math.ceil(GRID_DIM / 4);
+      pass.dispatchWorkgroups(wg, wg, wg);
+      pass.end();
+    }
+    {
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{ view: nebView, loadOp: "clear", storeOp: "store" }],
+      });
+      pass.setPipeline(marchPipeline);
+      pass.setBindGroup(0, marchBind);
+      pass.draw(3);
+      pass.end();
+    }
+
+    // Queue the core-position readback for the lenses.
+    const wantReadback = !state.readbackBusy && state.coreSlots.length > 0;
+    if (wantReadback) {
+      state.coreSlots.forEach((slot, i) => {
+        encoder.copyBufferToBuffer(
+          state.buffers.posMass, slot * 16, coreStaging, i * 16, 16);
+      });
     }
 
     // Fade (trails) then accumulate sprites into HDR.
@@ -536,6 +726,19 @@ async function init() {
 
     device.queue.submit([encoder.finish()]);
 
+    if (wantReadback) {
+      state.readbackBusy = true;
+      const slots = state.coreSlots;
+      coreStaging.mapAsync(GPUMapMode.READ).then(() => {
+        const f = new Float32Array(coreStaging.getMappedRange().slice(0));
+        coreStaging.unmap();
+        if (state.coreSlots === slots) {  // scene unchanged meanwhile
+          state.cores = slots.map((_, i) => [f[i * 4], f[i * 4 + 1], f[i * 4 + 2]]);
+        }
+        state.readbackBusy = false;
+      }).catch(() => { state.readbackBusy = false; });
+    }
+
     drawFlingArrow();
     const gpairs = state.paused
       ? 0
@@ -552,6 +755,8 @@ async function init() {
   state.n = parseInt(ui.count.value, 10);
   state.timescale = parseFloat(ui.speed.value);
   state.trails = parseFloat(ui.trails.value);
+  state.nebula = parseFloat(ui.nebula.value);
+  state.lensing = parseFloat(ui.lensing.value);
 
   configureSize();
   reset();
